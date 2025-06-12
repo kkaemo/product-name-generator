@@ -43,6 +43,9 @@ def get_domeggook_count(keyword):
 
 def find_valid_keywords(base_keyword):
     data = get_related_keywords(base_keyword)
+
+st.write("🔍 API 응답 키워드 샘플", data[:3])
+    
     valid = []
     for it in data:
         pc = it.get("monthlyPcQcCnt",0)
