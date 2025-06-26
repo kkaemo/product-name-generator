@@ -1,31 +1,27 @@
 import streamlit as st
 import pandas as pd
 import requests
-import io
-import hmac
-import hashlib
-import base64
-import time
+import io, time, hmac, hashlib, base64
 from datetime import datetime
 
-# 🔐 시크릿 정보 (Streamlit Cloud > Settings > Secrets에 등록 필요)
+# ✅ Streamlit 비밀환경변수에서 API 정보 불러오기
 CUSTOMER_ID = st.secrets["NAVER_CUSTOMER_ID"]
 API_KEY = st.secrets["NAVER_API_KEY"]
 SECRET_KEY = st.secrets["NAVER_SECRET_KEY"]
-DOMEGG_API_KEY = st.secrets["DOMEGGOOK_API_KEY"]
+DOMEGGOOK_API_KEY = st.secrets["DOMEGGOOK_API_KEY"]
+
 NAVER_API_HOST = "https://api.naver.com"
 
-# 📌 네이버 검색광고 API 서명 생성 함수
-def make_signature(uri, method="GET"):
+# ✅ 서명 생성 함수 (URI는 쿼리스트링 없이)
+def make_signature(uri: str, method="GET"):
     timestamp = str(int(time.time() * 1000))
     message = f"{timestamp}.{method}.{uri}"
     signature = base64.b64encode(hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).digest()).decode()
     return timestamp, signature
 
-# 📡 네이버 연관 키워드 데이터 가져오기
+# ✅ 네이버 키워드 API 요청
 def get_naver_keywords(base_keyword):
-    uri = f"/keywordstool?hintKeywords={base_keyword}&showDetail=1"
-    url = NAVER_API_HOST + uri
+    uri = "/keywordstool"
     timestamp, signature = make_signature(uri)
     headers = {
         "X-Timestamp": timestamp,
@@ -35,45 +31,40 @@ def get_naver_keywords(base_keyword):
         "Content-Type": "application/json; charset=UTF-8"
     }
     try:
-        res = requests.get(url, headers=headers, timeout=10)
-        st.session_state['last_naver_response'] = res
+        res = requests.get(NAVER_API_HOST + uri, headers=headers, params={"hintKeywords": base_keyword, "showDetail": 1}, timeout=10)
+        st.write("🔍 응답 상태 코드:", res.status_code)
+        st.write("🔍 응답 원문:", res.text)
         if res.status_code == 200:
             return res.json().get("keywordList", [])
-        else:
-            return []
     except Exception as e:
-        st.error(f"네이버 API 요청 오류: {e}")
-        return []
+        st.error(f"[네이버 키워드 API 오류] {e}")
+    return []
 
-# 📦 도매꾹 상품 수량 확인
+# ✅ 도매꾹 상품 수 조회
+@st.cache_data(show_spinner=False)
 def get_domeggook_count(keyword):
     try:
-        res = requests.get(
+        r = requests.get(
             "https://domeggook.com/ssl/api/",
-            params={
-                "ver": "4.0",
-                "mode": "getItemList",
-                "aid": DOMEGG_API_KEY,
-                "market": "dome",
-                "keyword": keyword,
-                "om": "json"
-            },
+            params={"ver":"4.0","mode":"getItemList","aid": DOMEGGOOK_API_KEY,"market":"dome","keyword": keyword,"om":"json"},
             timeout=5
         )
-        return int(res.json().get("totalCount", 0))
+        return int(r.json().get("totalCount", 0))
     except:
         return 999999
 
-# 🎯 조건 필터링 키워드 추출
+# ✅ 조건 기반 키워드 필터링
+@st.cache_data(show_spinner=False)
 def find_valid_keywords(base_keyword):
     data = get_naver_keywords(base_keyword)
+    st.write("🔍 API 응답 키워드 샘플", data[:3])
     valid = []
-    for item in data:
-        pc = item.get("monthlyPcQcCnt", 0)
-        mo = item.get("monthlyMobileQcCnt", 0)
-        comp = item.get("compIdx", "")
-        kw = item.get("relKeyword", "")
-        if pc + mo <= 3000 and comp in ["낮음", "LOW"]:
+    for it in data:
+        pc = it.get("monthlyPcQcCnt", 0)
+        mo = it.get("monthlyMobileQcCnt", 0)
+        comp = it.get("compIdx", "")
+        kw = it.get("relKeyword", "")
+        if pc + mo <= 3000 and comp == "LOW":
             cnt = get_domeggook_count(kw)
             if cnt <= 10000:
                 valid.append(kw)
@@ -81,56 +72,35 @@ def find_valid_keywords(base_keyword):
             break
     return valid
 
-# 🧠 최종 상품명 생성
+# ✅ 최종 상품명 생성
+@st.cache_data(show_spinner=False)
 def generate_names(kw):
-    try:
-        kws = find_valid_keywords(kw)
-        if not kws:
-            return ["조건을 만족하는 키워드가 없습니다"]
-        return [f"{k} 무선 초소형 강풍 휴대용"[:49] for k in kws]
-    except Exception as e:
-        return [f"🚫 네이버 API 오류: {st.session_state.get('last_naver_response').status_code}"]
+    kws = find_valid_keywords(kw)
+    if not kws:
+        return ["• 조건을 만족하는 키워드가 없습니다"]
+    return [f"{k} 무선 초소형 강풍 휴대용"[:49] for k in kws]
 
-# 🔍 상품명에서 대표 키워드 추출
+# ✅ 대표 키워드 추출 함수
 def extract_keyword(text):
-    for kw in ["손풍기", "선풍기", "보냉백", "캠핑", "무선"]:
+    for kw in ["손풍기", "보냉백", "선풍기", "캠핑", "무선"]:
         if kw in text:
             return kw
     return text.split()[0] if text else ""
 
-# 🖥️ UI
-st.title("📦 조건 기반 상품명 추천 도구 (네이버+도매꾹 연동)")
-
-# 👉 키워드 입력
+# ✅ UI 화면 구성
+st.title("📦 실시간 조건 기반 상품명 추천기")
 kw = st.text_input("대표 키워드 입력 (예: 손풍기)")
-
-# 👉 결과 출력
 if kw:
-    st.subheader("🎯 추천 상품명")
-    names = generate_names(kw)
-    for name in names:
-        st.write("•", name)
+    for name in generate_names(kw):
+        st.write(name)
 
-    # 네이버 응답 결과 원문 확인
-    st.subheader("📊 네이버 API 키워드 상세")
-    with st.expander("키워드 상세 리스트 펼치기"):
-        res = st.session_state.get('last_naver_response')
-        if res is not None and res.status_code == 200:
-            data = res.json().get("keywordList", [])
-            for item in data:
-                st.markdown(f"- 🔑 **{item['relKeyword']}** | PC: {item['monthlyPcQcCnt']}, 모바일: {item['monthlyMobileQcCnt']} | 클릭률: PC {item['monthlyAvePcCtr']}, 모바일 {item['monthlyAveMobileCtr']} | 경쟁도: {item['compIdx']}")
-        else:
-            st.error(f"❌ 네이버 API 오류: {res.status_code if res else '연결 실패'}")
-
-# 📁 엑셀 업로드 기능
-uploaded = st.file_uploader("또는 Excel 업로드 (.xlsx)", type=["xlsx"])
+uploaded = st.file_uploader("또는 엑셀 업로드 (.xlsx)", type=["xlsx"])
 if uploaded:
     df = pd.read_excel(uploaded).iloc[:, [0]].rename(columns={df.columns[0]: "도매처_상품명"})
     df["대표키워드"] = df["도매처_상품명"].apply(extract_keyword)
     df["추천상품명"] = df["대표키워드"].apply(lambda x: "; ".join(generate_names(x)))
     st.dataframe(df.head(10))
-
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False)
-    st.download_button("📥 결과 Excel 다운로드", buf.getvalue(), file_name=f"추천_{datetime.today().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        df.to_excel(writer, index=False, sheet_name="추천")
+    st.download_button("📥 결과 엑셀 다운로드", buf.getvalue(), file_name=f"추천_{datetime.today().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
