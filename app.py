@@ -8,13 +8,13 @@ import pandas as pd
 import io
 from datetime import datetime
 
-# 📌 Streamlit Secrets 에서 API 정보 불러오기
+# ✅ Streamlit Secrets 에서 API 정보 불러오기
 NAVER_API_KEY = st.secrets["NAVER_API_KEY"]
 NAVER_SECRET_KEY = st.secrets["NAVER_SECRET_KEY"]
 NAVER_CUSTOMER_ID = st.secrets["NAVER_CUSTOMER_ID"]
 DOMEGGOOK_API_KEY = st.secrets["DOMEGGOOK_API_KEY"]
 
-# 📌 시그니처 생성 함수
+# ✅ 시그니처 생성 함수
 def make_signature(path: str, method="GET"):
     timestamp = str(int(time.time() * 1000))
     message = f"{timestamp}.{method}.{path}"
@@ -23,7 +23,7 @@ def make_signature(path: str, method="GET"):
     ).decode()
     return timestamp, signature
 
-# 📌 네이버 키워드 API 요청 함수
+# ✅ 네이버 키워드 API 요청 함수
 def get_keywords(keyword):
     path = "/keywordstool"
     url = f"https://api.naver.com{path}"
@@ -48,7 +48,7 @@ def get_keywords(keyword):
         st.error(f"연결 실패: {e}")
         return []
 
-# 📌 도매꾹 상품 수 확인 함수
+# ✅ 도매꾹 상품 수 확인
 def get_domeggook_count(keyword):
     try:
         res = requests.get(
@@ -67,13 +67,13 @@ def get_domeggook_count(keyword):
     except:
         return 999999
 
-# 📌 유효한 키워드 필터링
+# ✅ 조건 필터링
 def find_valid_keywords(base_keyword):
     data = get_keywords(base_keyword)
     valid = []
     for item in data:
-        pc = item.get("monthlyPcQcCnt", 0)
-        mo = item.get("monthlyMobileQcCnt", 0)
+        pc = int(item.get("monthlyPcQcCnt") or 0)
+        mo = int(item.get("monthlyMobileQcCnt") or 0)
         comp = item.get("compIdx", "")
         kw = item.get("relKeyword", "")
         if pc + mo <= 3000 and comp in ["낮음", "LOW"]:
@@ -84,21 +84,21 @@ def find_valid_keywords(base_keyword):
             break
     return valid
 
-# 📌 상품명 생성
+# ✅ 상품명 생성
 def generate_names(kw):
     kws = find_valid_keywords(kw)
     if not kws:
         return ["조건을 만족하는 키워드가 없습니다"]
     return [f"{k} 무선 초소형 강풍 휴대용"[:49] for k in kws]
 
-# 📌 키워드 추출
+# ✅ 키워드 추출
 def extract_keyword(text):
     for kw in ["손풍기", "보냉백", "선풍기", "캠핑", "무선"]:
         if kw in text:
             return kw
     return text.split()[0] if text else ""
 
-# 📌 Streamlit UI
+# ✅ UI
 st.set_page_config(page_title="상품명 키워드 추천기", layout="centered")
 st.title("📦 조건 기반 상품명 추천 도구 (네이버+도매꾹 연동)")
 
@@ -116,7 +116,7 @@ if keyword:
         df.columns = ["키워드", "PC검색량", "모바일검색량", "경쟁도"]
         st.dataframe(df, use_container_width=True)
 
-# 📁 엑셀 업로드
+# ✅ 엑셀 업로드
 uploaded = st.file_uploader("또는 Excel 업로드 (.xlsx)", type=["xlsx"])
 if uploaded:
     df = pd.read_excel(uploaded).iloc[:, [0]].rename(columns={df.columns[0]: "도매처_상품명"})
